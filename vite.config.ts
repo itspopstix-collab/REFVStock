@@ -7,6 +7,7 @@ const DATA_DIR = path.resolve(process.cwd(), 'data');
 const DB_FILE = path.join(DATA_DIR, 'database.json');
 
 export default defineConfig({
+  base: './',
   plugins: [
     react(),
     {
