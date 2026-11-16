@@ -32,6 +32,13 @@ interface Props {
   onUpdateState: (updater: (prev: AppDatabaseState) => AppDatabaseState) => void;
 }
 
+const resolveImageUrl = (imgUrl?: string) => {
+  if (!imgUrl) return './images/holy-cow.png';
+  if (imgUrl.startsWith('http://') || imgUrl.startsWith('https://')) return imgUrl;
+  if (imgUrl.startsWith('/')) return '.' + imgUrl;
+  return './' + imgUrl;
+};
+
 export const RecipeCostView: React.FC<Props> = ({ state, sim, onUpdateState }) => {
   const [selectedRecipeId, setSelectedRecipeId] = useState<string>(state.recipes[0]?.id || '');
   // 'master' = แก้สูตรตั้งต้นของรสนั้น, '<runId>' = แก้ปริมาณกรัม/ล็อตของ "ครั้งที่ทำ / เติม Stock" รอบนั้นโดยเฉพาะ
@@ -531,9 +538,10 @@ export const RecipeCostView: React.FC<Props> = ({ state, sim, onUpdateState }) =
               >
                 <div className="flex items-center gap-3">
                   <img
-                    src={rec.image || '/images/holy-cow.png'}
+                    src={resolveImageUrl(rec.image)}
                     alt={rec.name}
                     onError={(e) => {
+                      (e.target as HTMLImageElement).src = './images/holy-cow.png';
                       (e.target as HTMLImageElement).style.opacity = '0.3';
                     }}
                     className="w-14 h-14 rounded-xl object-cover bg-[#90d4ec]/30 shrink-0 border border-[#eae3cf]"
@@ -587,8 +595,12 @@ export const RecipeCostView: React.FC<Props> = ({ state, sim, onUpdateState }) =
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-[#eae3cf]">
               <div className="flex items-center gap-3">
                 <img
-                  src={selectedRecipe.image || '/images/holy-cow.png'}
+                  src={resolveImageUrl(selectedRecipe.image)}
                   alt={selectedRecipe.name}
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src = './images/holy-cow.png';
+                    (e.target as HTMLImageElement).style.opacity = '0.3';
+                  }}
                   className="w-12 h-12 rounded-xl object-cover bg-[#90d4ec]/30 border border-[#eae3cf]"
                 />
                 <div>
