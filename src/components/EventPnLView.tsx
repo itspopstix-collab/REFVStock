@@ -100,6 +100,37 @@ export const EventPnLView: React.FC<Props> = ({ state, sim, onUpdateState }) => 
   const [quickIngTotalPrice, setQuickIngTotalPrice] = useState('');
   const [quickIngUseGrams, setQuickIngUseGrams] = useState('');
   const [isIngredientVendorExpanded, setIsIngredientVendorExpanded] = useState(false);
+  const [collapsedFlavors, setCollapsedFlavors] = useState<Record<string, boolean>>({});
+  const [collapsedBatches, setCollapsedBatches] = useState<Record<string, boolean>>({});
+
+  const toggleFlavorCollapse = (recipeId: string) => {
+    setCollapsedFlavors((prev) => ({
+      ...prev,
+      [recipeId]: !prev[recipeId],
+    }));
+  };
+
+  const toggleBatchCollapse = (batchId: string) => {
+    setCollapsedBatches((prev) => ({
+      ...prev,
+      [batchId]: !prev[batchId],
+    }));
+  };
+
+  const handleToggleAllBatches = (collapse: boolean) => {
+    if (!selectedEvent?.boothBatches) return;
+    const nextBatches: Record<string, boolean> = {};
+    for (const b of selectedEvent.boothBatches) {
+      nextBatches[b.id] = collapse;
+    }
+    setCollapsedBatches(nextBatches);
+
+    const nextFlavors: Record<string, boolean> = {};
+    for (const r of state.recipes) {
+      nextFlavors[r.id] = collapse;
+    }
+    setCollapsedFlavors(nextFlavors);
+  };
 
   const [manualIngId, setManualIngId] = useState<string>(state.ingredients[0]?.id || '');
   const [manualIngLotId, setManualIngLotId] = useState<string>('latest');
@@ -2499,6 +2530,25 @@ export const EventPnLView: React.FC<Props> = ({ state, sim, onUpdateState }) => 
                       เลือกรสที่ต้องการปั่น ระบบจะดึงสัดส่วนตามสูตรมาให้อัตโนมัติ เลือกล็อตที่หยิบมาใช้จริง และหากล็อตเก่าไม่พอ สามารถกด <b>+ เพิ่ม Lot อื่น</b> เพื่อใส่วัตถุดิบเดิมซ้ำได้ทันที
                     </p>
                   </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleToggleAllBatches(true)}
+                      className="text-xs font-bold text-[#0d3a57] bg-white hover:bg-slate-50 border border-[#eae3cf] px-2.5 py-1 rounded-lg inline-flex items-center gap-1 cursor-pointer transition shadow-2xs"
+                    >
+                      <ChevronUp className="w-3.5 h-3.5 text-[#118cd1]" />
+                      ย่อวัตถุดิบทุกรอบ
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleToggleAllBatches(false)}
+                      className="text-xs font-bold text-[#0d3a57] bg-white hover:bg-slate-50 border border-[#eae3cf] px-2.5 py-1 rounded-lg inline-flex items-center gap-1 cursor-pointer transition shadow-2xs"
+                    >
+                      <ChevronDown className="w-3.5 h-3.5 text-[#118cd1]" />
+                      ขยายวัตถุดิบทุกรอบ
+                    </button>
+                  </div>
                 </div>
 
                 <div className="space-y-4">
@@ -2507,6 +2557,7 @@ export const EventPnLView: React.FC<Props> = ({ state, sim, onUpdateState }) => 
                       (b) => b.recipeId === rec.id
                     );
                     const hasBatches = batchesForFlavor.length > 0;
+                    const isFlavorCollapsed = collapsedFlavors[rec.id];
 
                     return (
                       <div
@@ -2518,30 +2569,51 @@ export const EventPnLView: React.FC<Props> = ({ state, sim, onUpdateState }) => 
                         }`}
                       >
                         <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-[#eae3cf]">
-                          <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-2.5 flex-wrap">
                             <span className="font-extrabold text-base text-[#0d3a57]">{rec.name}</span>
                             <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-[#90d4ec]/30 text-[#0d3a57]">
                               {rec.category}
                             </span>
                             {hasBatches && (
-                              <span className="text-xs font-extrabold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-lg">
-                                ปั่น {batchesForFlavor.length} รอบสำหรับงานนี้
-                              </span>
+                              <button
+                                type="button"
+                                onClick={() => toggleFlavorCollapse(rec.id)}
+                                className="text-xs font-extrabold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 px-2.5 py-0.5 rounded-lg inline-flex items-center gap-1.5 transition cursor-pointer"
+                              >
+                                <span>ปั่น {batchesForFlavor.length} รอบสำหรับงานนี้</span>
+                                {isFlavorCollapsed ? (
+                                  <ChevronDown className="w-3 h-3 text-emerald-700" />
+                                ) : (
+                                  <ChevronUp className="w-3 h-3 text-emerald-700" />
+                                )}
+                              </button>
                             )}
                           </div>
 
-                          <button
-                            type="button"
-                            onClick={() => handleAddBoothBatch(rec.id)}
-                            className="bg-[#118cd1] hover:bg-[#0e78b5] text-white font-bold text-xs px-3.5 py-1.5 rounded-xl inline-flex items-center gap-1 transition cursor-pointer"
-                          >
-                            <Plus className="w-3.5 h-3.5" />
-                            {hasBatches ? '+ ปั่นเพิ่มอีก 1 รอบ' : '+ บันทึกการปั่นรสชาตินี้'}
-                          </button>
+                          <div className="flex items-center gap-2">
+                            {hasBatches && (
+                              <button
+                                type="button"
+                                onClick={() => toggleFlavorCollapse(rec.id)}
+                                className="text-xs font-bold text-[#6b8799] hover:text-[#0d3a57] px-2 py-1 rounded-lg inline-flex items-center gap-1 cursor-pointer transition"
+                              >
+                                {isFlavorCollapsed ? 'ขยายดูรอบ' : 'ย่อรอบ'}
+                                {isFlavorCollapsed ? <ChevronDown className="w-3.5 h-3.5 text-[#118cd1]" /> : <ChevronUp className="w-3.5 h-3.5 text-[#118cd1]" />}
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => handleAddBoothBatch(rec.id)}
+                              className="bg-[#118cd1] hover:bg-[#0e78b5] text-white font-bold text-xs px-3.5 py-1.5 rounded-xl inline-flex items-center gap-1 transition cursor-pointer"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                              {hasBatches ? '+ ปั่นเพิ่มอีก 1 รอบ' : '+ บันทึกการปั่นรสชาตินี้'}
+                            </button>
+                          </div>
                         </div>
 
                         {/* แสดงรายการแต่ละรอบการปั่นของรสชาตินี้ */}
-                        {hasBatches && (
+                        {hasBatches && !isFlavorCollapsed && (
                           <div className="space-y-3 mt-3">
                             {batchesForFlavor.map((batch) => {
                               const batchTotalGrams = batch.ingredients.reduce(
@@ -2555,13 +2627,18 @@ export const EventPnLView: React.FC<Props> = ({ state, sim, onUpdateState }) => 
                                 batchTotalCost += (Number(l.grams) || 0) * (matchedLot?.costPerGram || 0);
                               });
 
+const isBatchCollapsed = collapsedBatches[batch.id];
+
                               return (
                                 <div
                                   key={batch.id}
                                   className="bg-[#fef9ec] p-3 rounded-xl border border-[#eae3cf] space-y-2.5"
                                 >
                                   <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                                    <div className="flex items-center gap-2">
+                                    <div
+                                      className="flex items-center gap-2 cursor-pointer select-none"
+                                      onClick={() => toggleBatchCollapse(batch.id)}
+                                    >
                                       <span className="font-extrabold text-[#118cd1] text-sm">
                                         รอบที่ {batch.batchNumber}:
                                       </span>
@@ -2572,6 +2649,23 @@ export const EventPnLView: React.FC<Props> = ({ state, sim, onUpdateState }) => 
                                     </div>
 
                                     <div className="flex items-center gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => toggleBatchCollapse(batch.id)}
+                                        className="text-[11px] font-bold text-[#0d3a57] bg-white hover:bg-slate-50 border border-[#eae3cf] px-2.5 py-1 rounded-lg inline-flex items-center gap-1 cursor-pointer transition shadow-2xs"
+                                      >
+                                        {isBatchCollapsed ? (
+                                          <>
+                                            <span>แสดงวัตถุดิบ ({batch.ingredients.length})</span>
+                                            <ChevronDown className="w-3 h-3 text-[#118cd1]" />
+                                          </>
+                                        ) : (
+                                          <>
+                                            <span>ย่อวัตถุดิบ</span>
+                                            <ChevronUp className="w-3 h-3 text-[#118cd1]" />
+                                          </>
+                                        )}
+                                      </button>
                                       <button
                                         type="button"
                                         onClick={() => handleCloneBoothBatch(batch.id)}
@@ -2592,7 +2686,8 @@ export const EventPnLView: React.FC<Props> = ({ state, sim, onUpdateState }) => 
                                   </div>
 
                                   {/* ตารางวัตถุดิบในรอบนี้ พร้อมตัวเลือกล็อตและปุ่มแตกแถวซ้ำ */}
-                                  <div className="bg-white rounded-lg border border-[#eae3cf] overflow-hidden">
+                                  {!isBatchCollapsed ? (
+                                    <div className="bg-white rounded-lg border border-[#eae3cf] overflow-hidden">
                                     <table className="w-full text-left text-xs">
                                       <thead className="bg-[#eae3cf]/40 text-[#6b8799] font-bold">
                                         <tr>
@@ -2697,6 +2792,32 @@ export const EventPnLView: React.FC<Props> = ({ state, sim, onUpdateState }) => 
                                       </tbody>
                                     </table>
                                   </div>
+                                  ) : (
+                                    <div
+                                      onClick={() => toggleBatchCollapse(batch.id)}
+                                      className="bg-white hover:bg-slate-50 transition p-2.5 rounded-lg border border-[#eae3cf] flex items-center justify-between text-xs cursor-pointer text-[#6b8799]"
+                                    >
+                                      <div className="flex items-center gap-2 truncate">
+                                        <span className="font-bold text-[#0d3a57] shrink-0">
+                                          {batch.ingredients.length} วัตถุดิบ:
+                                        </span>
+                                        <span className="truncate">
+                                          {batch.ingredients
+                                            .map((ingItem) => {
+                                              const ing = state.ingredients.find((x) => x.id === ingItem.ingredientId);
+                                              return ing ? `${ing.name} ${ingItem.grams}g` : '';
+                                            })
+                                            .filter(Boolean)
+                                            .slice(0, 5)
+                                            .join(', ')}
+                                          {batch.ingredients.length > 5 ? '...' : ''}
+                                        </span>
+                                      </div>
+                                      <span className="text-[#118cd1] font-bold inline-flex items-center gap-1 hover:underline shrink-0 ml-2">
+                                        คลิกเพื่อดู/แก้ไขวัตถุดิบ <ChevronDown className="w-3.5 h-3.5" />
+                                      </span>
+                                    </div>
+                                  )}
                                 </div>
                               );
                             })}
