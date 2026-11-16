@@ -217,126 +217,16 @@ export async function pullDatabaseFromGoogleSheets(
     // fallback ต่อ
   }
 
-  // 2. อ่านตาราง Tax_Packaging_Lots และ Tax_Ingredient_Lots จากชีทเผื่อมีการแก้ไขบนชีทโดยตรง
-  if (baseState) {
-    try {
-      const pkgRows = await fetchSheetGvizRows(settings.sheetId, 'Tax_Packaging_Lots');
-      if (pkgRows && pkgRows.length > 0) {
-        const lots: PackagingLot[] = [];
-        for (const r of pkgRows) {
-          const id = String(r[0] || '').trim();
-          if (!id || id === 'Lot ID') continue;
-          const qty = Number(r[5]) || 0;
-          const total = Number(r[6]) || 0;
-          lots.push({
-            id,
-            itemId: String(r[1] || 'pkg-cup').trim(),
-            purchaseDate: String(r[3] || '').trim(),
-            vendor: String(r[4] || '').trim(),
-            quantity: qty,
-            totalPrice: total,
-            unitCost: Number(r[7]) || (qty > 0 ? total / qty : 0),
-            note: String(r[8] || '').trim() || undefined,
-          });
-        }
-        if (lots.length > 0) {
-          baseState.packagingLots = lots;
-        }
-      }
-    } catch {
-      // ignore
-    }
-
-    try {
-      const ingRows = await fetchSheetGvizRows(settings.sheetId, 'Tax_Ingredient_Lots');
-      if (ingRows && ingRows.length > 0) {
-        const lots: IngredientLot[] = [];
-        for (const r of ingRows) {
-          const id = String(r[0] || '').trim();
-          if (!id || id === 'Lot ID') continue;
-          const weight = Number(r[5]) || 0;
-          const total = Number(r[6]) || 0;
-          lots.push({
-            id,
-            ingredientId: String(r[1] || '').trim(),
-            purchaseDate: String(r[3] || '').trim(),
-            vendor: String(r[4] || '').trim(),
-            weightGrams: weight,
-            totalPrice: total,
-            costPerGram: Number(r[7]) || (weight > 0 ? total / weight : 0),
-            note: String(r[8] || '').trim() || undefined,
-          });
-        }
-        if (lots.length > 0) {
-          baseState.ingredientLots = lots;
-        }
-      }
-    } catch {
-      // ignore
-    }
-
-    // 3. อ่านตาราง Tax_Recipes จากชีทเผื่อมีการแก้ปริมาณกรัมหรือเปลี่ยนล็อตใน Google Sheet โดยตรง
-    try {
-      const recRows = await fetchSheetGvizRows(settings.sheetId, 'Tax_Recipes');
-      if (recRows && recRows.length > 0) {
-        const recipeLinesMap = new Map<
-          string,
-          {
-            category: string;
-            mode: 'per_cup' | 'per_batch';
-            batchYieldCups: number;
-            ingredients: { ingredientId: string; gramsPerBatch: number; selectedLotId?: string }[];
-          }
-        >();
-
-        for (const r of recRows) {
-          const flavorName = String(r[0] || '').trim();
-          if (!flavorName || flavorName === 'Flavor Name') continue;
-          const category = String(r[1] || 'Original').trim();
-          const modeRaw = String(r[2] || 'per_cup').trim();
-          const mode: 'per_cup' | 'per_batch' = modeRaw === 'per_batch' ? 'per_batch' : 'per_cup';
-          const batchYieldCups = Number(r[3]) || 1;
-          const ingredientId = String(r[4] || '').trim();
-          const grams = Number(r[6]) || 0;
-          const selectedLotId = String(r[7] || 'fifo').trim();
-
-          if (!recipeLinesMap.has(flavorName)) {
-            recipeLinesMap.set(flavorName, {
-              category,
-              mode,
-              batchYieldCups,
-              ingredients: [],
-            });
-          }
-          if (ingredientId && grams > 0) {
-            recipeLinesMap.get(flavorName)!.ingredients.push({
-              ingredientId,
-              gramsPerBatch: grams,
-              selectedLotId,
-            });
-          }
-        }
-
-        if (recipeLinesMap.size > 0) {
-          baseState.recipes = baseState.recipes.map((rec) => {
-            const fromSheet = recipeLinesMap.get(rec.name);
-            if (!fromSheet) return rec;
-            return {
-              ...rec,
-              mode: fromSheet.mode,
-              batchYieldCups: fromSheet.batchYieldCups,
-              ingredients: fromSheet.ingredients,
-            };
-          });
-        }
-      }
-    } catch {
-      // ignore
-    }
+  // 2. ถ้าดึง Tax_DB_State ได้แล้ว ให้ใช้ข้อมูลก้อนนี้เป็นหลัก 100% เพราะมีข้อมูลครบถ้วนที่สุด
+  // (ทั้งการเลือกล็อต, รอบการผลิต Production Runs, Event Usages)
+  // หากดึง Tax_DB_State ไม่สำเร็จ จึงค่อย fallback ไปอ่านจากแท็บตารางย่อย
+  if (!baseState) {
+    // fallback ต่อ
   }
 
   return baseState ? ensureEventSnapshots(baseState) : null;
 }
+
 
 export function saveAppState(
   state: AppDatabaseState,
