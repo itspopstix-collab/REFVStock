@@ -2,6 +2,8 @@ import React, { useRef, useState } from 'react';
 import {
   AppDatabaseState,
   BoothEvent,
+  BoothFlavorBatch,
+  BoothFlavorBatchIngredient,
   EventExpense,
   EventFlavorProductionUsage,
   EventIngredientLotAllocation,
@@ -438,6 +440,193 @@ export const EventPnLView: React.FC<Props> = ({ state, sim, onUpdateState }) => 
       ),
     }));
   };
+
+  // ==========================================
+  // Flow ใหม่: บันทึกการปั่น / เตรียม Stock ประจำบูธ (BoothBatches)
+  // ==========================================
+
+  // 1. เพิ่มรอบการปั่นใหม่ (ดึงสูตรมาตรฐานมาเป็นค่าเริ่มต้น พร้อมสัดส่วนกรัม)
+  const handleAddBoothBatch = (recipeId: string) => {
+    if (!selectedEvent) return;
+    const rec = state.recipes.find((r) => r.id === recipeId);
+    if (!rec) return;
+
+    const existingBatches = (selectedEvent.boothBatches || []).filter((b) => b.recipeId === recipeId);
+    const batchNumber = existingBatches.length + 1;
+
+    const defaultIngredients: BoothFlavorBatchIngredient[] = rec.ingredients.map((line) => {
+      const allLots = state.ingredientLots
+        .filter((l) => l.ingredientId === line.ingredientId)
+        .sort((a, b) => a.purchaseDate.localeCompare(b.purchaseDate) || a.id.localeCompare(b.id));
+      const chosenLot = allLots.length > 0 ? allLots[allLots.length - 1].id : 'latest';
+      return {
+        id: 'bi-' + Date.now() + '-' + Math.floor(Math.random() * 10000),
+        ingredientId: line.ingredientId,
+        lotId: chosenLot,
+        grams: line.gramsPerBatch,
+      };
+    });
+
+    const newBatch: BoothFlavorBatch = {
+      id: 'bb-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
+      recipeId,
+      batchNumber,
+      label: batchNumber === 1 ? 'รอบที่ 1 (เตรียมเปิดบูธ)' : `รอบที่ ${batchNumber} (ปั่นเติม Stock)`,
+      ingredients: defaultIngredients,
+    };
+
+    onUpdateState((prev) => ({
+      ...prev,
+      events: prev.events.map((ev) =>
+        ev.id === selectedEvent.id
+          ? {
+              ...ev,
+              ingredientCostMode: 'produced_batches',
+              boothBatches: [...(ev.boothBatches || []), newBatch],
+            }
+          : ev
+      ),
+    }));
+  };
+
+  // 2. Clone จากรอบก่อนหน้า (สำหรับเติม Stock โดยไม่ต้องกรอกใหม่)
+  const handleCloneBoothBatch = (sourceBatchId: string) => {
+    if (!selectedEvent) return;
+    const sourceBatch = (selectedEvent.boothBatches || []).find((b) => b.id === sourceBatchId);
+    if (!sourceBatch) return;
+
+    const existingForFlavor = (selectedEvent.boothBatches || []).filter(
+      (b) => b.recipeId === sourceBatch.recipeId
+    );
+    const nextNumber = existingForFlavor.length + 1;
+
+    const clonedIngredients: BoothFlavorBatchIngredient[] = sourceBatch.ingredients.map((ing) => ({
+      ...ing,
+      id: 'bi-' + Date.now() + '-' + Math.floor(Math.random() * 10000),
+    }));
+
+    const clonedBatch: BoothFlavorBatch = {
+      id: 'bb-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
+      recipeId: sourceBatch.recipeId,
+      batchNumber: nextNumber,
+      label: `รอบที่ ${nextNumber} (Clone จากรอบที่ ${sourceBatch.batchNumber})`,
+      ingredients: clonedIngredients,
+    };
+
+    onUpdateState((prev) => ({
+      ...prev,
+      events: prev.events.map((ev) =>
+        ev.id === selectedEvent.id
+          ? {
+              ...ev,
+              boothBatches: [...(ev.boothBatches || []), clonedBatch],
+            }
+          : ev
+      ),
+    }));
+  };
+
+  // 3. ลบรอบการปั่น
+  const handleDeleteBoothBatch = (batchId: string) => {
+    if (!selectedEvent) return;
+    onUpdateState((prev) => ({
+      ...prev,
+      events: prev.events.map((ev) =>
+        ev.id === selectedEvent.id
+          ? {
+              ...ev,
+              boothBatches: (ev.boothBatches || []).filter((b) => b.id !== batchId),
+            }
+          : ev
+      ),
+    }));
+  };
+
+  // 4. แตกแถววัตถุดิบซ้ำในรอบเดียวกัน (กรณี Lot เก่าไม่พอ ต้องการ Add Lot ใหม่ลงไป)
+  const handleDuplicateBatchIngredientRow = (batchId: string, ingredientId: string) => {
+    if (!selectedEvent) return;
+    const allLots = state.ingredientLots
+      .filter((l) => l.ingredientId === ingredientId)
+      .sort((a, b) => a.purchaseDate.localeCompare(b.purchaseDate) || a.id.localeCompare(b.id));
+    const nextLotId = allLots.length > 0 ? allLots[allLots.length - 1].id : 'latest';
+
+    const newRow: BoothFlavorBatchIngredient = {
+      id: 'bi-' + Date.now() + '-' + Math.floor(Math.random() * 10000),
+      ingredientId,
+      lotId: nextLotId,
+      grams: 0,
+    };
+
+    onUpdateState((prev) => ({
+      ...prev,
+      events: prev.events.map((ev) => {
+        if (ev.id !== selectedEvent.id) return ev;
+        return {
+          ...ev,
+          boothBatches: (ev.boothBatches || []).map((b) =>
+            b.id === batchId
+              ? {
+                  ...b,
+                  ingredients: [...b.ingredients, newRow],
+                }
+              : b
+          ),
+        };
+      }),
+    }));
+  };
+
+  // 5. อัปเดตข้อมูลในแถววัตถุดิบของรอบนั้น (เปลี่ยน Lot หรือแก้จำนวนกรัม)
+  const handleUpdateBatchIngredient = (
+    batchId: string,
+    rowId: string,
+    field: 'lotId' | 'grams',
+    value: string | number
+  ) => {
+    if (!selectedEvent) return;
+    onUpdateState((prev) => ({
+      ...prev,
+      events: prev.events.map((ev) => {
+        if (ev.id !== selectedEvent.id) return ev;
+        return {
+          ...ev,
+          boothBatches: (ev.boothBatches || []).map((b) =>
+            b.id === batchId
+              ? {
+                  ...b,
+                  ingredients: b.ingredients.map((row) =>
+                    row.id === rowId ? { ...row, [field]: value } : row
+                  ),
+                }
+              : b
+          ),
+        };
+      }),
+    }));
+  };
+
+  // 6. ลบแถววัตถุดิบที่แตกเพิ่มออกมา
+  const handleRemoveBatchIngredientRow = (batchId: string, rowId: string) => {
+    if (!selectedEvent) return;
+    onUpdateState((prev) => ({
+      ...prev,
+      events: prev.events.map((ev) => {
+        if (ev.id !== selectedEvent.id) return ev;
+        return {
+          ...ev,
+          boothBatches: (ev.boothBatches || []).map((b) =>
+            b.id === batchId
+              ? {
+                  ...b,
+                  ingredients: b.ingredients.filter((row) => row.id !== rowId),
+                }
+              : b
+          ),
+        };
+      }),
+    }));
+  };
+
 
   // ดึงรายการล็อตแพ็กเกจจิ้งที่เลือกใช้ในบูธนี้ (ถ้ายังไม่เคยเลือก ให้ใช้ล็อตแรกที่มีเป็นค่าเริ่มต้น 1 แถว)
   const getEffectivePackagingAllocations = (
@@ -2418,129 +2607,217 @@ export const EventPnLView: React.FC<Props> = ({ state, sim, onUpdateState }) => 
             </div>
 
             {selectedEvent.ingredientCostMode === 'produced_batches' && (
-              <div className="bg-[#fef9ec] p-4 rounded-xl border border-[#eae3cf] space-y-3">
+              <div className="bg-[#fef9ec] p-4 rounded-xl border border-[#eae3cf] space-y-4">
                 <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                  <span className="font-extrabold text-[#0d3a57]">
-                    🥣 ติ๊กเลือกรสชาติที่ทำไปออกบูธนี้ และเลือกว่าใช้ &ldquo;ครั้งที่ทำ / เติม Stock&rdquo; รอบไหนบ้าง (เพิ่มหลายครั้งได้หากมีการเติมสต็อก):
-                  </span>
-                  <span className="text-[#6b8799]">
-                    * สามารถตั้งค่าปริมาณกรัมของแต่ละครั้งที่ทำได้ในแท็บ &ldquo;🍨 สูตรไอติม&rdquo;
-                  </span>
+                  <div>
+                    <span className="font-extrabold text-sm text-[#0d3a57] flex items-center gap-1.5">
+                      🥣 บันทึกรอบการปั่น & เติม Stock สำหรับบูธนี้ (สามารถแตกแถวเลือกหลาย Lot และ Clone รอบได้)
+                    </span>
+                    <p className="text-xs text-[#6b8799] mt-0.5">
+                      เลือกรสที่ต้องการปั่น ระบบจะดึงสัดส่วนตามสูตรมาให้อัตโนมัติ เลือกล็อตที่หยิบมาใช้จริง และหากล็อตเก่าไม่พอ สามารถกด <b>+ เพิ่ม Lot อื่น</b> เพื่อใส่วัตถุดิบเดิมซ้ำได้ทันที
+                    </p>
+                  </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="space-y-4">
                   {state.recipes.map((rec) => {
-                    const rowsForFlavor = (selectedEvent.flavorProductionUsages || []).filter(
-                      (u) => u.recipeId === rec.id
+                    const batchesForFlavor = (selectedEvent.boothBatches || []).filter(
+                      (b) => b.recipeId === rec.id
                     );
-                    const isMade = rowsForFlavor.length > 0;
-                    const masterGrams = rec.ingredients.reduce(
-                      (s, l) => s + (Number(l.gramsPerBatch) || 0),
-                      0
-                    );
+                    const hasBatches = batchesForFlavor.length > 0;
 
                     return (
                       <div
                         key={rec.id}
-                        className={`p-3 rounded-xl border text-xs transition space-y-2 ${
-                          isMade
-                            ? 'bg-white border-[#118cd1] shadow-2xs'
-                            : 'bg-white/50 border-[#eae3cf] opacity-75'
+                        className={`rounded-2xl border transition p-4 ${
+                          hasBatches
+                            ? 'bg-white border-[#118cd1] shadow-xs'
+                            : 'bg-white/60 border-[#eae3cf]'
                         }`}
                       >
-                        <div className="flex items-center justify-between gap-2">
-                          <label className="flex items-center gap-2 font-extrabold text-sm text-[#0d3a57] cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={isMade}
-                              onChange={(e) => handleToggleFlavorInBooth(rec.id, e.target.checked)}
-                              className="w-4 h-4 accent-[#118cd1] rounded"
-                            />
-                            <span>{rec.name}</span>
-                          </label>
+                        <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-[#eae3cf]">
+                          <div className="flex items-center gap-3">
+                            <span className="font-extrabold text-base text-[#0d3a57]">{rec.name}</span>
+                            <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-[#90d4ec]/30 text-[#0d3a57]">
+                              {rec.category}
+                            </span>
+                            {hasBatches && (
+                              <span className="text-xs font-extrabold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-lg">
+                                ปั่น {batchesForFlavor.length} รอบสำหรับงานนี้
+                              </span>
+                            )}
+                          </div>
 
-                          {isMade && (
-                            <button
-                              type="button"
-                              onClick={() => handleAddFlavorRunUsageRow(rec.id)}
-                              className="text-[11px] font-extrabold text-[#118cd1] bg-[#90d4ec]/20 hover:bg-[#90d4ec]/40 px-2.5 py-1 rounded-lg inline-flex items-center gap-1 cursor-pointer"
-                            >
-                              <Plus className="w-3 h-3" />
-                              เพิ่มครั้งที่ทำ / เติม Stock
-                            </button>
-                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleAddBoothBatch(rec.id)}
+                            className="bg-[#118cd1] hover:bg-[#0e78b5] text-white font-bold text-xs px-3.5 py-1.5 rounded-xl inline-flex items-center gap-1 transition cursor-pointer"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            {hasBatches ? '+ ปั่นเพิ่มอีก 1 รอบ' : '+ บันทึกการปั่นรสชาตินี้'}
+                          </button>
                         </div>
 
-                        {isMade && (
-                          <div className="space-y-1.5 pt-1 border-t border-[#eae3cf]">
-                            {rowsForFlavor.map((uRow, rIdx) => (
-                              <div
-                                key={uRow.id}
-                                className="flex flex-wrap items-center justify-between gap-1.5 bg-[#fef9ec] p-2 rounded-lg border border-[#eae3cf]"
-                              >
-                                <div className="flex items-center gap-1.5 flex-1 min-w-[180px]">
-                                  <span className="font-bold text-[#118cd1] shrink-0">
-                                    รอบที่ {rIdx + 1}:
-                                  </span>
-                                  <select
-                                    value={uRow.runId}
-                                    onChange={(e) =>
-                                      handleUpdateFlavorRunUsageRow(
-                                        uRow.id,
-                                        'runId',
-                                        e.target.value
-                                      )
-                                    }
-                                    className="w-full bg-white border border-[#eae3cf] rounded-md px-2 py-1 font-bold text-[#0d3a57]"
-                                  >
-                                    <option value="master">
-                                      📋 สูตรตั้งต้น ({masterGrams.toLocaleString()}g)
-                                    </option>
-                                    {(rec.productionRuns || []).map((pr, pIdx) => {
-                                      const g = pr.ingredients.reduce(
-                                        (s, l) => s + (Number(l.gramsPerBatch) || 0),
-                                        0
-                                      );
-                                      return (
-                                        <option key={pr.id} value={pr.id}>
-                                          {pr.label || `ครั้งที่ ${pIdx + 1}`} ({pr.date} ·{' '}
-                                          {g.toLocaleString()}g)
-                                        </option>
-                                      );
-                                    })}
-                                  </select>
-                                </div>
+                        {/* แสดงรายการแต่ละรอบการปั่นของรสชาตินี้ */}
+                        {hasBatches && (
+                          <div className="space-y-3 mt-3">
+                            {batchesForFlavor.map((batch) => {
+                              const batchTotalGrams = batch.ingredients.reduce(
+                                (s, l) => s + (Number(l.grams) || 0),
+                                0
+                              );
+                              let batchTotalCost = 0;
+                              batch.ingredients.forEach((l) => {
+                                const queue = state.ingredientLots.filter((lot) => lot.ingredientId === l.ingredientId);
+                                const matchedLot = queue.find((lot) => lot.id === l.lotId) || queue[queue.length - 1];
+                                batchTotalCost += (Number(l.grams) || 0) * (matchedLot?.costPerGram || 0);
+                              });
 
-                                <div className="flex items-center gap-1 shrink-0">
-                                  <span className="text-[#6b8799]">จำนวน:</span>
-                                  <input
-                                    type="number"
-                                    min="0.1"
-                                    step="0.5"
-                                    value={uRow.batchesUsed}
-                                    onChange={(e) =>
-                                      handleUpdateFlavorRunUsageRow(
-                                        uRow.id,
-                                        'batchesUsed',
-                                        Math.max(0, parseFloat(e.target.value) || 0)
-                                      )
-                                    }
-                                    className="w-14 text-right font-extrabold bg-white border border-[#eae3cf] rounded-md px-1.5 py-1 text-[#0d3a57]"
-                                  />
-                                  <span className="text-[#6b8799] font-semibold">รอบ/หม้อ</span>
-                                  {rowsForFlavor.length > 1 && (
-                                    <button
-                                      type="button"
-                                      onClick={() => handleRemoveFlavorRunUsageRow(uRow.id)}
-                                      className="text-rose-500 hover:bg-rose-50 p-1 rounded cursor-pointer"
-                                      title="ลบรอบนี้"
-                                    >
-                                      <Trash2 className="w-3.5 h-3.5" />
-                                    </button>
-                                  )}
+                              return (
+                                <div
+                                  key={batch.id}
+                                  className="bg-[#fef9ec] p-3 rounded-xl border border-[#eae3cf] space-y-2.5"
+                                >
+                                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-extrabold text-[#118cd1] text-sm">
+                                        รอบที่ {batch.batchNumber}:
+                                      </span>
+                                      <span className="font-bold text-[#0d3a57]">{batch.label}</span>
+                                      <span className="text-[#6b8799]">
+                                        (น้ำหนักรวม {batchTotalGrams.toLocaleString()}g · ต้นทุน {formatBaht(batchTotalCost)})
+                                      </span>
+                                    </div>
+
+                                    <div className="flex items-center gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleCloneBoothBatch(batch.id)}
+                                        className="bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-300 font-extrabold text-[11px] px-2.5 py-1 rounded-lg inline-flex items-center gap-1 cursor-pointer transition"
+                                        title="คัดลอกสูตรและล็อตที่เลือกทั้งหมดไปเป็นรอบใหม่ทันที"
+                                      >
+                                        📋 Clone รอบนี้ (เติม Stock)
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleDeleteBoothBatch(batch.id)}
+                                        className="text-rose-500 hover:bg-rose-50 px-2 py-1 rounded text-xs font-bold inline-flex items-center gap-1 cursor-pointer"
+                                        title="ลบรอบนี้"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" /> ลบรอบนี้
+                                      </button>
+                                    </div>
+                                  </div>
+
+                                  {/* ตารางวัตถุดิบในรอบนี้ พร้อมตัวเลือกล็อตและปุ่มแตกแถวซ้ำ */}
+                                  <div className="bg-white rounded-lg border border-[#eae3cf] overflow-hidden">
+                                    <table className="w-full text-left text-xs">
+                                      <thead className="bg-[#eae3cf]/40 text-[#6b8799] font-bold">
+                                        <tr>
+                                          <th className="py-2 px-3">วัตถุดิบตามสูตร</th>
+                                          <th className="py-2 px-3">หยิบมาจาก Lot / Vendor ไหน</th>
+                                          <th className="py-2 px-3 text-right">จำนวนที่ใช้ (กรัม)</th>
+                                          <th className="py-2 px-3 text-right">คิดเป็นเงิน</th>
+                                          <th className="py-2 px-3 text-center">จัดการ</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody className="divide-y divide-[#eae3cf]">
+                                        {batch.ingredients.map((ingLine) => {
+                                          const ingMeta = state.ingredients.find((i) => i.id === ingLine.ingredientId);
+                                          const allLots = state.ingredientLots
+                                            .filter((l) => l.ingredientId === ingLine.ingredientId)
+                                            .sort((a, b) => a.purchaseDate.localeCompare(b.purchaseDate) || a.id.localeCompare(b.id));
+                                          const selectedLot = allLots.find((l) => l.id === ingLine.lotId) || allLots[allLots.length - 1];
+                                          const lineCost = (Number(ingLine.grams) || 0) * (selectedLot?.costPerGram || 0);
+
+                                          return (
+                                            <tr key={ingLine.id} className="hover:bg-[#fef9ec]/40">
+                                              <td className="py-2 px-3 font-extrabold text-[#0d3a57]">
+                                                {ingMeta?.name || ingLine.ingredientId}
+                                              </td>
+                                              <td className="py-2 px-3">
+                                                {allLots.length === 0 ? (
+                                                  <span className="text-amber-700 font-semibold text-[11px]">
+                                                    ⚠️ ยังไม่มีประวัติซื้อวัตถุดิบนี้
+                                                  </span>
+                                                ) : (
+                                                  <select
+                                                    value={selectedLot?.id || ''}
+                                                    onChange={(e) =>
+                                                      handleUpdateBatchIngredient(
+                                                        batch.id,
+                                                        ingLine.id,
+                                                        'lotId',
+                                                        e.target.value
+                                                      )
+                                                    }
+                                                    className="w-full text-xs font-bold bg-[#fef9ec] border border-[#eae3cf] rounded-md px-2 py-1 text-[#0d3a57]"
+                                                  >
+                                                    {allLots.map((lot, lIdx) => (
+                                                      <option key={lot.id} value={lot.id}>
+                                                        ครั้งที่ {lIdx + 1}: {lot.purchaseDate} · {lot.vendor} ({formatBaht(lot.costPerGram, 4)}/{lot.unit === 'pcs' ? 'ชิ้น' : 'g'})
+                                                      </option>
+                                                    ))}
+                                                  </select>
+                                                )}
+                                              </td>
+                                              <td className="py-2 px-3 text-right">
+                                                <input
+                                                  type="number"
+                                                  step="any"
+                                                  min="0"
+                                                  value={ingLine.grams}
+                                                  onChange={(e) =>
+                                                    handleUpdateBatchIngredient(
+                                                      batch.id,
+                                                      ingLine.id,
+                                                      'grams',
+                                                      Math.max(0, parseFloat(e.target.value) || 0)
+                                                    )
+                                                  }
+                                                  className="w-20 text-right font-extrabold bg-[#fef9ec] border border-[#eae3cf] rounded-md px-2 py-1 text-[#0d3a57]"
+                                                />
+                                                <span className="ml-1 text-[11px] text-[#6b8799]">g</span>
+                                              </td>
+                                              <td className="py-2 px-3 text-right font-extrabold text-[#0d3a57]">
+                                                {formatBaht(lineCost)}
+                                              </td>
+                                              <td className="py-2 px-3 text-center space-x-1">
+                                                <button
+                                                  type="button"
+                                                  onClick={() =>
+                                                    handleDuplicateBatchIngredientRow(
+                                                      batch.id,
+                                                      ingLine.ingredientId
+                                                    )
+                                                  }
+                                                  className="text-[11px] bg-sky-50 text-sky-700 hover:bg-sky-100 border border-sky-300 font-bold px-2 py-0.5 rounded cursor-pointer"
+                                                  title="กรณี Lot นี้ไม่พอ กดเพื่อเลือก Lot อื่นมาเติมกรัมที่เหลือ"
+                                                >
+                                                  + เพิ่ม Lot อื่น
+                                                </button>
+                                                {batch.ingredients.filter((x) => x.ingredientId === ingLine.ingredientId).length > 1 && (
+                                                  <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                      handleRemoveBatchIngredientRow(batch.id, ingLine.id)
+                                                    }
+                                                    className="text-rose-500 hover:bg-rose-50 p-1 rounded cursor-pointer"
+                                                    title="ลบแถวนี้"
+                                                  >
+                                                    <Trash2 className="w-3 h-3" />
+                                                  </button>
+                                                )}
+                                              </td>
+                                            </tr>
+                                          );
+                                        })}
+                                      </tbody>
+                                    </table>
+                                  </div>
                                 </div>
-                              </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         )}
                       </div>
@@ -2549,6 +2826,7 @@ export const EventPnLView: React.FC<Props> = ({ state, sim, onUpdateState }) => 
                 </div>
               </div>
             )}
+
 
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse text-sm">

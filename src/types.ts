@@ -135,15 +135,24 @@ export interface EventIngredientLotAllocation {
 export interface EventFlavorProductionUsage {
   id: string;
   recipeId: string;
-  /**
-   * 'master' = ใช้สูตรตั้งต้นของรสนั้น
-   * '<runId>' = ใช้สูตรและปริมาณกรัมของ "ครั้งที่ทำ" (FlavorProductionRun) ครั้งนั้น
-   */
   runId: string;
-  /**
-   * จำนวนหม้อ/สัดส่วนของครั้งที่ทำนั้นที่นำมาใช้ในบูธนี้ (ค่าเริ่มต้น = 1)
-   */
   batchesUsed: number;
+}
+
+export interface BoothFlavorBatchIngredient {
+
+  id: string; // unique id for this row
+  ingredientId: string;
+  lotId?: string; // specific lot id or 'fifo' or 'latest'
+  grams: number; // grams used from this lot
+}
+
+export interface BoothFlavorBatch {
+  id: string;
+  recipeId: string;
+  batchNumber: number; // ครั้งที่ 1, 2, 3...
+  label?: string; // เช่น "รอบเปิดบูธ", "ปั่นเติมรอบ 2"
+  ingredients: BoothFlavorBatchIngredient[];
 }
 
 export interface BoothEvent {
@@ -197,6 +206,12 @@ export interface BoothEvent {
    * รองรับการเพิ่มมากกว่า 1 ครั้งที่ทำในรสเดียวกัน (เช่น ครั้งที่ 1 ปั่นเปิดบูธ + ครั้งที่ 2 ปั่นเติม Stock ที่ใช้ปริมาณกรัมไม่เท่ากัน)
    */
   flavorProductionUsages?: EventFlavorProductionUsage[];
+  /**
+   * ระบบใหม่: บันทึกรอบการผลิต (Batches) ที่ทำไปขายในบูธนี้โดยตรง
+   * แต่ละรอบระบุวัตถุดิบ, ล็อตที่หยิบมาใช้, และสามารถแตกแถวเลือกหลายล็อต/Clone รอบได้
+   */
+  boothBatches?: BoothFlavorBatch[];
+
   lastSyncedAt?: string;
   notes?: string;
 }

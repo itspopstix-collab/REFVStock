@@ -688,12 +688,43 @@ function computeSingleEventFifo(
   const flavorIngredientGramsMap = new Map<string, Map<string, number>>();
 
   const isBatchMode = ev.ingredientCostMode === 'produced_batches';
+  const hasBoothBatches =
+    isBatchMode && Array.isArray(ev.boothBatches) && ev.boothBatches.length > 0;
   const hasExplicitProductionUsages =
     isBatchMode &&
+    !hasBoothBatches &&
     Array.isArray(ev.flavorProductionUsages) &&
     ev.flavorProductionUsages.length > 0;
 
-  if (hasExplicitProductionUsages) {
+  if (hasBoothBatches) {
+    for (const batch of ev.boothBatches!) {
+      const masterMatch = state.recipes.find((r) => r.id === batch.recipeId);
+      const snapMatch = effectiveRecipes.find((r) => r.id === batch.recipeId);
+      const recipe = masterMatch || snapMatch;
+      if (!recipe) continue;
+
+      const stat = ensureFlavorStat(recipe.name, recipe.category);
+      const fKey = stat.flavorName;
+      if (!flavorIngredientGramsMap.has(fKey)) {
+        flavorIngredientGramsMap.set(fKey, new Map<string, number>());
+      }
+      const perFlavorIngMap = flavorIngredientGramsMap.get(fKey)!;
+
+      for (const line of batch.ingredients) {
+        const grams = Math.max(0, Number(line.grams) || 0);
+        if (grams <= 0) continue;
+
+        perFlavorIngMap.set(
+          line.ingredientId,
+          (perFlavorIngMap.get(line.ingredientId) || 0) + grams
+        );
+        ingredientGramsNeededMap.set(
+          line.ingredientId,
+          (ingredientGramsNeededMap.get(line.ingredientId) || 0) + grams
+        );
+      }
+    }
+  } else if (hasExplicitProductionUsages) {
     // กรณีผู้ใช้ระบุรายการ "ครั้งที่ทำ / เติม Stock" ที่นำมาใช้ในบูธนี้ (รองรับหลายครั้งที่ทำในรสเดียวกัน ซึ่งแต่ละครั้งอาจใช้ปริมาณกรัมไม่เท่ากัน)
     for (const usage of ev.flavorProductionUsages!) {
       const batchesUsed = Math.max(0, Number(usage.batchesUsed) || 0);
@@ -819,7 +850,40 @@ function computeSingleEventFifo(
 
     const slices: FifoLotUsageSlice[] = [];
 
-    if (userAllocations && userAllocations.length > 0) {
+    if (hasBoothBatches) {
+      for (const batch of ev.boothBatches!) {
+        for (const line of batch.ingredients) {
+          if (line.ingredientId !== ing.id) continue;
+          const grams = Math.max(0, Number(line.grams) || 0);
+          if (grams <= 0) continue;
+
+          const targetLot =
+            (line.lotId && line.lotId !== 'fifo' && line.lotId !== 'latest'
+              ? queue.find((l) => l.lotId === line.lotId)
+              : undefined) || queue[queue.length - 1];
+
+          if (targetLot) {
+            const sliceCost = grams * targetLot.unitCost;
+            targetLot.usedQty += grams;
+            targetLot.remainingQty = Math.max(0, targetLot.initialQty - targetLot.usedQty);
+            targetLot.usageByEvent.push({
+              eventId: ev.id,
+              eventName: ev.name,
+              qtyUsed: grams,
+              cost: sliceCost,
+            });
+            slices.push({
+              lotId: targetLot.lotId,
+              purchaseDate: targetLot.purchaseDate,
+              vendor: targetLot.vendor,
+              quantityUsed: grams,
+              unitCost: targetLot.unitCost,
+              totalCost: sliceCost,
+            });
+          }
+        }
+      }
+    } else if (userAllocations && userAllocations.length > 0) {
       userAllocations.forEach((alloc) => {
         const gramsToUse =
           userAllocations.length === 1 && alloc.autoFillTotal !== false && recipeGramsNeeded > 0
