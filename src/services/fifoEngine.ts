@@ -857,29 +857,91 @@ function computeSingleEventFifo(
           const grams = Math.max(0, Number(line.grams) || 0);
           if (grams <= 0) continue;
 
-          const targetLot =
-            (line.lotId && line.lotId !== 'fifo' && line.lotId !== 'latest'
-              ? queue.find((l) => l.lotId === line.lotId)
-              : undefined) || queue[queue.length - 1];
-
-          if (targetLot) {
-            const sliceCost = grams * targetLot.unitCost;
-            targetLot.usedQty += grams;
-            targetLot.remainingQty = Math.max(0, targetLot.initialQty - targetLot.usedQty);
-            targetLot.usageByEvent.push({
-              eventId: ev.id,
-              eventName: ev.name,
-              qtyUsed: grams,
-              cost: sliceCost,
-            });
-            slices.push({
-              lotId: targetLot.lotId,
-              purchaseDate: targetLot.purchaseDate,
-              vendor: targetLot.vendor,
-              quantityUsed: grams,
-              unitCost: targetLot.unitCost,
-              totalCost: sliceCost,
-            });
+          if (line.lotId && line.lotId !== 'fifo' && line.lotId !== 'latest') {
+            // เลือกล็อตเจาะจง
+            const targetLot = queue.find((l) => l.lotId === line.lotId) || queue[queue.length - 1];
+            if (targetLot) {
+              const sliceCost = grams * targetLot.unitCost;
+              targetLot.usedQty += grams;
+              targetLot.remainingQty = Math.max(0, targetLot.initialQty - targetLot.usedQty);
+              targetLot.usageByEvent.push({
+                eventId: ev.id,
+                eventName: ev.name,
+                qtyUsed: grams,
+                cost: sliceCost,
+              });
+              slices.push({
+                lotId: targetLot.lotId,
+                purchaseDate: targetLot.purchaseDate,
+                vendor: targetLot.vendor,
+                quantityUsed: grams,
+                unitCost: targetLot.unitCost,
+                totalCost: sliceCost,
+              });
+            }
+          } else if (line.lotId === 'latest') {
+            // เลือกล็อตล่าสุด
+            const targetLot = queue.length > 0 ? queue[queue.length - 1] : undefined;
+            if (targetLot) {
+              const sliceCost = grams * targetLot.unitCost;
+              targetLot.usedQty += grams;
+              targetLot.remainingQty = Math.max(0, targetLot.initialQty - targetLot.usedQty);
+              targetLot.usageByEvent.push({
+                eventId: ev.id,
+                eventName: ev.name,
+                qtyUsed: grams,
+                cost: sliceCost,
+              });
+              slices.push({
+                lotId: targetLot.lotId,
+                purchaseDate: targetLot.purchaseDate,
+                vendor: targetLot.vendor,
+                quantityUsed: grams,
+                unitCost: targetLot.unitCost,
+                totalCost: sliceCost,
+              });
+            }
+          } else {
+            // FIFO: ตัดจากล็อตเก่าสุดที่มีสต็อกเหลือไปใหม่สุด
+            let needed = grams;
+            for (const lot of queue) {
+              if (needed <= 0.0001) break;
+              if (lot.remainingQty <= 0.0001) continue;
+              const take = Math.min(lot.remainingQty, needed);
+              const sliceCost = take * lot.unitCost;
+              lot.usedQty += take;
+              lot.remainingQty = Math.max(0, lot.initialQty - lot.usedQty);
+              lot.usageByEvent.push({
+                eventId: ev.id,
+                eventName: ev.name,
+                qtyUsed: take,
+                cost: sliceCost,
+              });
+              slices.push({
+                lotId: lot.lotId,
+                purchaseDate: lot.purchaseDate,
+                vendor: lot.vendor,
+                quantityUsed: take,
+                unitCost: lot.unitCost,
+                totalCost: sliceCost,
+              });
+              needed -= take;
+            }
+            if (needed > 0.0001) {
+              const fallbackLot = queue.length > 0 ? queue[queue.length - 1] : undefined;
+              if (fallbackLot) {
+                const fallbackCost = needed * fallbackLot.unitCost;
+                fallbackLot.usedQty += needed;
+                slices.push({
+                  lotId: fallbackLot.lotId,
+                  purchaseDate: fallbackLot.purchaseDate,
+                  vendor: fallbackLot.vendor,
+                  quantityUsed: needed,
+                  unitCost: fallbackLot.unitCost,
+                  totalCost: fallbackCost,
+                });
+              }
+            }
           }
         }
       }

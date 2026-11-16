@@ -2,7 +2,7 @@ import { AppDatabaseState, IngredientLot, PackagingLot, PosConnectionSettings } 
 import { fetchSheetGvizRows } from './posSync';
 import { createInitialSeedState } from './seedData';
 
-const STORAGE_KEY = 'refv_cost_pnl_db_v2_clean';
+const STORAGE_KEY = 'refv_cost_pnl_db_v3_booth_batches';
 try {
   localStorage.removeItem('refv_cost_pnl_db_v1');
 } catch {
@@ -77,6 +77,26 @@ function mergeLocalAndDiskState(
     return localR || diskR || r;
   });
 
+  const mergedEvents = (disk.events || []).map((diskEv) => {
+    const localEv = (local.events || []).find((x) => x.id === diskEv.id);
+    if (!localEv) return diskEv;
+    const diskBatches = diskEv.boothBatches?.length || 0;
+    const localBatches = localEv.boothBatches?.length || 0;
+    if (diskBatches > localBatches) {
+      return {
+        ...localEv,
+        boothBatches: diskEv.boothBatches,
+        flavorProductionUsages: diskEv.flavorProductionUsages || localEv.flavorProductionUsages,
+      };
+    }
+    return localEv;
+  });
+  for (const localEv of local.events || []) {
+    if (!mergedEvents.some((x) => x.id === localEv.id)) {
+      mergedEvents.push(localEv);
+    }
+  }
+
   return {
     settings: local.settings || disk.settings,
     packagingItems: mergeById(disk.packagingItems, local.packagingItems),
@@ -84,7 +104,7 @@ function mergeLocalAndDiskState(
     ingredients: mergeById(disk.ingredients, local.ingredients),
     ingredientLots: mergeById(disk.ingredientLots, local.ingredientLots),
     recipes: mergedRecipes,
-    events: mergeById(disk.events, local.events),
+    events: mergedEvents,
   };
 }
 
