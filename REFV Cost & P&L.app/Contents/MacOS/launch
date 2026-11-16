@@ -1,0 +1,21 @@
+#!/bin/zsh
+export PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"
+PROJECT_DIR="/Users/itspopstix/REFV Tax"
+PORT=5175
+
+if ! nc -z localhost $PORT 2>/dev/null; then
+  cd "$PROJECT_DIR"
+  nohup npm run dev > /tmp/refv-cost-pnl.log 2>&1 &
+  for i in {1..25}; do
+    if nc -z localhost $PORT 2>/dev/null; then
+      break
+    fi
+    sleep 0.2
+  done
+fi
+
+if [ -d "/Applications/Google Chrome.app" ]; then
+  open -na "Google Chrome" --args --app="http://localhost:$PORT"
+else
+  open "http://localhost:$PORT"
+fi
