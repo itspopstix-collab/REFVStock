@@ -39,6 +39,7 @@ import {
   ChevronDown,
   ChevronUp,
   Scale,
+  BarChart3,
 } from 'lucide-react';
 
 interface Props {
@@ -98,6 +99,7 @@ export const EventPnLView: React.FC<Props> = ({ state, sim, onUpdateState }) => 
   const [quickIngBuyGrams, setQuickIngBuyGrams] = useState('');
   const [quickIngTotalPrice, setQuickIngTotalPrice] = useState('');
   const [quickIngUseGrams, setQuickIngUseGrams] = useState('');
+  const [isIngredientVendorExpanded, setIsIngredientVendorExpanded] = useState(false);
 
   const [manualIngId, setManualIngId] = useState<string>(state.ingredients[0]?.id || '');
   const [manualIngLotId, setManualIngLotId] = useState<string>('latest');
@@ -2147,419 +2149,299 @@ export const EventPnLView: React.FC<Props> = ({ state, sim, onUpdateState }) => 
             </div>
           </div>
 
-          {/* ส่วนระบุว่าในบูธนี้ วัตถุดิบแต่ละตัวใช้จาก Vendor / ล็อตไหน และใช้ไปกี่กรัม (ไม่พึ่งพา FIFO จากบูธเก่า) */}
+          {/* ส่วนระบุว่าในบูธนี้ วัตถุดิบแต่ละตัวใช้จาก Vendor / ล็อตไหน และใช้ไปกี่กรัม (แผนภูมิแท่ง Vendor Bar Chart & Expandable) */}
           <div className="bg-white rounded-2xl p-5 shadow-sm border border-[#eae3cf] space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <h3 className="font-extrabold text-[#0d3a57] flex items-center gap-2">
                   <Scale className="w-5 h-5 text-[#118cd1]" />
-                  วัตถุดิบที่ใช้ในงานออกบูธนี้ & ระบุว่าใช้จาก Vendor ไหนไปกี่กรัม
+                  <span>วัตถุดิบที่ใช้ในงานออกบูธนี้ แยกตาม Vendor</span>
+                  <span className="text-xs bg-[#118cd1]/15 text-[#118cd1] font-extrabold px-2.5 py-0.5 rounded-full">
+                    {pnl.ingredientUsages.length} รายการ
+                  </span>
                 </h3>
                 <p className="text-xs text-[#6b8799] mt-0.5">
-                  ไม่ต้องใช้ FIFO จากบูธก่อนหน้า! เลือกได้เลยว่าแต่ละวัตถุดิบเอาจาก <b>การซื้อครั้งไหน (Vendor ไหน)</b> และ <b>ระบุจำนวนกรัมที่ใช้จริงในบูธนี้</b> ได้โดยตรง (เพิ่มมากกว่า 1 เจ้าได้)
+                  แผนภูมิแท่งแสดงสัดส่วนปริมาณกรัม (g) และต้นทุนที่ดึงใช้จริงจากแต่ละ Vendor ในบูธนี้
                 </p>
               </div>
-              <span className="text-sm font-extrabold text-[#118cd1]">
-                รวมต้นทุนวัตถุดิบในบูธนี้: {formatBaht(pnl.totalIngredientCost)}
-              </span>
+
+              <div className="flex items-center gap-2.5 self-start sm:self-auto">
+                <span className="text-sm font-extrabold text-[#118cd1]">
+                  รวมต้นทุนวัตถุดิบ: {formatBaht(pnl.totalIngredientCost)}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setIsIngredientVendorExpanded(!isIngredientVendorExpanded)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold text-xs bg-[#fef9ec] hover:bg-[#eae3cf]/60 border border-[#eae3cf] text-[#0d3a57] transition cursor-pointer"
+                >
+                  <BarChart3 className="w-3.5 h-3.5 text-[#118cd1]" />
+                  <span>
+                    {isIngredientVendorExpanded
+                      ? 'ย่อแผนภูมิ ▲'
+                      : `ขยายดูแผนภูมิแท่ง (${pnl.ingredientUsages.length}) ▼`}
+                  </span>
+                </button>
+              </div>
             </div>
 
-            {pnl.ingredientUsages.length === 0 ? (
-              <div className="text-xs text-[#6b8799] bg-[#fef9ec] p-4 rounded-xl border border-[#eae3cf] text-center">
-                ยังไม่มีรายการวัตถุดิบที่คำนวณในบูธนี้ — คุณสามารถกดเพิ่มวัตถุดิบที่ใช้จริงในบูธด้านล่าง หรือเลือกครั้งที่ทำในตารางรสชาติด้านล่างได้เลยครับ
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-                {pnl.ingredientUsages.map((u) => {
-                  const lotsForIng = state.ingredientLots
-                    .filter((l) => l.ingredientId === u.ingredientId)
-                    .sort(
-                      (a, b) =>
-                        a.purchaseDate.localeCompare(b.purchaseDate) || a.id.localeCompare(b.id)
-                    );
-                  const allocations = getEffectiveIngredientAllocations(
-                    u.ingredientId,
-                    u.recipeGramsNeeded
-                  );
-
-                  return (
-                    <div
-                      key={u.ingredientId}
-                      className="bg-[#fef9ec] rounded-xl p-3.5 border border-[#eae3cf] space-y-2.5"
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div>
-                          <span className="font-extrabold text-sm text-[#0d3a57]">
-                            {u.ingredientName}
-                          </span>
-                          <span className="text-xs text-[#6b8799] ml-2">
-                            (ใช้รวม{' '}
-                            <b className="text-[#0d3a57]">
-                              {u.totalGramsNeeded.toLocaleString(undefined, {
-                                maximumFractionDigits: 2,
-                              })}{' '}
-                              g
-                            </b>
-                            {u.recipeGramsNeeded > 0
-                              ? ` · ตามสูตร ${u.recipeGramsNeeded.toLocaleString(undefined, {
-                                  maximumFractionDigits: 1,
-                                })} g`
-                              : ''}
-                            )
-                          </span>
-                        </div>
-                        <span className="font-extrabold text-sm text-rose-700">
-                          {formatBaht(u.totalCost)}
-                        </span>
-                      </div>
-
-                      {lotsForIng.length === 0 ? (
-                        <div className="text-xs bg-amber-50 text-amber-900 px-3 py-2 rounded-lg border border-amber-200 flex flex-wrap items-center justify-between gap-2">
-                          <span>
-                            ⚠️ ยังไม่มีราคาล็อตที่ซื้อของ <b>{u.ingredientName}</b>
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setQuickAddIngId(u.ingredientId);
-                              setQuickIngDate(selectedEvent.startDate || today);
-                              setQuickIngVendor('');
-                              setQuickIngBuyGrams('1000');
-                              setQuickIngTotalPrice('');
-                              setQuickIngUseGrams(
-                                String(Number(u.recipeGramsNeeded.toFixed(2)) || '')
-                              );
-                            }}
-                            className="text-xs font-extrabold text-[#118cd1] hover:underline cursor-pointer"
-                          >
-                            + ใส่ราคาซื้อ & Vendor ตอนนี้เลย
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="space-y-2">
-                          {allocations.map((alloc, idx) => {
-                            const selectedLot =
-                              lotsForIng.find((l) => l.id === alloc.lotId) ||
-                              lotsForIng[lotsForIng.length - 1];
-                            const rowCost =
-                              (Number(alloc.gramsUsed) || 0) * (selectedLot?.costPerGram || 0);
-
-                            return (
-                              <div
-                                key={alloc.id || `${u.ingredientId}-${idx}`}
-                                className="bg-white p-2.5 rounded-xl border border-[#eae3cf] space-y-1.5"
-                              >
-                                <div className="flex items-center justify-between gap-2">
-                                  <span className="text-[11px] font-extrabold px-2 py-0.5 rounded bg-[#90d4ec]/30 text-[#0d3a57]">
-                                    Vendor เจ้าที่ {idx + 1} ที่ใช้ในบูธนี้
-                                  </span>
-                                  {allocations.length > 1 && (
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        handleRemoveIngredientLotRow(
-                                          u.ingredientId,
-                                          idx,
-                                          u.recipeGramsNeeded
-                                        )
-                                      }
-                                      className="text-[11px] text-rose-600 hover:bg-rose-50 px-2 py-0.5 rounded font-bold inline-flex items-center gap-1 cursor-pointer"
-                                    >
-                                      <Trash2 className="w-3 h-3" /> ลบแถวนี้
-                                    </button>
-                                  )}
-                                </div>
-
-                                <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
-                                  <div className="sm:col-span-7">
-                                    <select
-                                      value={selectedLot?.id || ''}
-                                      onChange={(e) =>
-                                        handleChangeIngredientLotId(
-                                          u.ingredientId,
-                                          idx,
-                                          e.target.value,
-                                          u.recipeGramsNeeded
-                                        )
-                                      }
-                                      className="w-full text-xs font-bold bg-[#fef9ec] border border-[#eae3cf] focus:border-[#118cd1] focus:outline-none rounded-lg px-2 py-1.5 text-[#0d3a57]"
-                                    >
-                                      {lotsForIng.map((lot, lotIdx) => (
-                                        <option key={lot.id} value={lot.id}>
-                                          ครั้งที่ {lotIdx + 1}: {lot.purchaseDate} · {lot.vendor} (
-                                          {formatBaht(lot.costPerGram, 4)}/g)
-                                        </option>
-                                      ))}
-                                    </select>
-                                  </div>
-
-                                  <div className="sm:col-span-5 flex items-center justify-between sm:justify-end gap-1.5 text-xs">
-                                    <span className="text-[#6b8799] font-semibold shrink-0">
-                                      ใช้ไป:
-                                    </span>
-                                    <input
-                                      type="number"
-                                      min="0"
-                                      step="any"
-                                      value={alloc.gramsUsed}
-                                      onChange={(e) =>
-                                        handleChangeIngredientLotGrams(
-                                          u.ingredientId,
-                                          idx,
-                                          e.target.value === '' ? 0 : parseFloat(e.target.value),
-                                          u.recipeGramsNeeded
-                                        )
-                                      }
-                                      className="w-20 text-right font-extrabold bg-[#fef9ec] border border-[#eae3cf] focus:border-[#118cd1] focus:outline-none rounded-lg px-2 py-1 text-[#0d3a57]"
-                                    />
-                                    <span className="text-[#6b8799] font-semibold shrink-0">
-                                      g
-                                    </span>
-                                    <span className="font-extrabold text-rose-700 min-w-[65px] text-right">
-                                      = {formatBaht(rowCost)}
-                                    </span>
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-
-                      <div className="flex flex-wrap items-center gap-2 pt-0.5">
-                        {lotsForIng.length > 0 && (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleAddIngredientLotRow(u.ingredientId, u.recipeGramsNeeded)
-                            }
-                            className="text-[11px] font-bold text-[#118cd1] bg-white hover:bg-[#90d4ec]/20 border border-[#90d4ec] px-2.5 py-1 rounded-lg inline-flex items-center gap-1 transition cursor-pointer"
-                          >
-                            <Plus className="w-3 h-3" />
-                            เพิ่ม Vendor ที่ 2 (แบ่งใช้หลายเจ้าในบูธนี้)
-                          </button>
-                        )}
-
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (quickAddIngId === u.ingredientId) {
-                              setQuickAddIngId(null);
-                            } else {
-                              setQuickAddIngId(u.ingredientId);
-                              setQuickIngDate(selectedEvent.startDate || today);
-                              setQuickIngVendor('');
-                              setQuickIngBuyGrams('1000');
-                              setQuickIngTotalPrice('');
-                              setQuickIngUseGrams(
-                                String(Number(u.recipeGramsNeeded.toFixed(2)) || '')
-                              );
-                            }
-                          }}
-                          className="text-[11px] font-bold text-[#0d3a57] bg-white hover:bg-slate-100 border border-[#eae3cf] px-2.5 py-1 rounded-lg inline-flex items-center gap-1 transition cursor-pointer"
-                        >
-                          <Plus className="w-3 h-3 text-emerald-600" />
-                          เพิ่มล็อตซื้อ / Vendor ใหม่ของ {u.ingredientName}
-                        </button>
-                      </div>
-
-                      {quickAddIngId === u.ingredientId && (
-                        <form
-                          onSubmit={(e) =>
-                            handleQuickCreateIngredientLotAndUse(
-                              e,
-                              u.ingredientId,
-                              u.recipeGramsNeeded
-                            )
-                          }
-                          className="bg-white p-3 rounded-xl border-2 border-[#118cd1] space-y-2 mt-2"
-                        >
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-extrabold text-[#0d3a57]">
-                              🛒 บันทึกล็อตซื้อ &ldquo;{u.ingredientName}&rdquo; + ระบุกรัมที่ใช้ในบูธนี้
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => setQuickAddIngId(null)}
-                              className="text-xs text-[#6b8799] hover:text-rose-600 font-bold cursor-pointer"
-                            >
-                              ปิด ×
-                            </button>
-                          </div>
-
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            <div>
-                              <label className="block text-[11px] font-bold text-[#6b8799] mb-0.5">
-                                ชื่อร้าน / Vendor ที่ซื้อ *
-                              </label>
-                              <input
-                                type="text"
-                                placeholder="เช่น Makro, Shopee, ร้านเบเกอรี่"
-                                value={quickIngVendor}
-                                onChange={(e) => setQuickIngVendor(e.target.value)}
-                                className="w-full text-xs font-semibold bg-[#fef9ec] border border-[#eae3cf] rounded-lg px-2.5 py-1.5"
-                                required
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-bold text-[#6b8799] mb-0.5">
-                                วันที่ซื้อ
-                              </label>
-                              <input
-                                type="date"
-                                value={quickIngDate}
-                                onChange={(e) => setQuickIngDate(e.target.value)}
-                                className="w-full text-xs font-semibold bg-[#fef9ec] border border-[#eae3cf] rounded-lg px-2.5 py-1.5"
-                                required
-                              />
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                            <div>
-                              <label className="block text-[11px] font-bold text-[#6b8799] mb-0.5">
-                                น้ำหนักที่ซื้อมาทั้งหมด (กรัม) *
-                              </label>
-                              <input
-                                type="number"
-                                min="1"
-                                step="any"
-                                placeholder="เช่น 1000"
-                                value={quickIngBuyGrams}
-                                onChange={(e) => setQuickIngBuyGrams(e.target.value)}
-                                className="w-full text-xs font-bold bg-[#fef9ec] border border-[#eae3cf] rounded-lg px-2.5 py-1.5"
-                                required
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-bold text-[#6b8799] mb-0.5">
-                                ราคารวมที่ซื้อ (บาท) *
-                              </label>
-                              <input
-                                type="number"
-                                min="0"
-                                step="any"
-                                placeholder="เช่น 250"
-                                value={quickIngTotalPrice}
-                                onChange={(e) => setQuickIngTotalPrice(e.target.value)}
-                                className="w-full text-xs font-bold bg-[#fef9ec] border border-[#eae3cf] rounded-lg px-2.5 py-1.5"
-                                required
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-bold text-[#118cd1] mb-0.5">
-                                ใช้ในบูธนี้กี่กรัม (g)?
-                              </label>
-                              <input
-                                type="number"
-                                min="0"
-                                step="any"
-                                value={quickIngUseGrams}
-                                onChange={(e) => setQuickIngUseGrams(e.target.value)}
-                                className="w-full text-xs font-extrabold bg-white border-2 border-[#118cd1]/50 rounded-lg px-2.5 py-1.5 text-[#0d3a57]"
-                              />
-                            </div>
-                          </div>
-
-                          <div className="flex items-center justify-between pt-1">
-                            <span className="text-[11px] text-[#6b8799]">
-                              {parseFloat(quickIngBuyGrams) > 0 &&
-                              parseFloat(quickIngTotalPrice) >= 0
-                                ? `ตกกรัมละ ${formatBaht(
-                                    parseFloat(quickIngTotalPrice) / parseFloat(quickIngBuyGrams),
-                                    4
-                                  )}/g`
-                                : 'คำนวณราคาต่อกรัมอัตโนมัติ'}
-                            </span>
-                            <button
-                              type="submit"
-                              className="bg-[#118cd1] hover:bg-[#0e78b5] text-white font-bold text-xs px-3.5 py-1.5 rounded-lg cursor-pointer"
-                            >
-                              บันทึกล็อตนี้ & ใช้ในบูธนี้
-                            </button>
-                          </div>
-                        </form>
-                      )}
-                    </div>
-                  );
-                })}
+            {/* Collapsed Preview Bar */}
+            {!isIngredientVendorExpanded && pnl.ingredientUsages.length > 0 && (
+              <div
+                onClick={() => setIsIngredientVendorExpanded(true)}
+                className="bg-[#fef9ec] hover:bg-[#eae3cf]/40 transition rounded-xl p-3.5 border border-[#eae3cf] flex items-center justify-between cursor-pointer group"
+              >
+                <div className="flex items-center gap-2.5 text-xs text-[#6b8799]">
+                  <BarChart3 className="w-4 h-4 text-[#118cd1] shrink-0" />
+                  <span>
+                    ใช้วัตถุดิบทั้งหมด <b className="text-[#0d3a57]">{pnl.ingredientUsages.length} รายการ</b>{' '}
+                    (ใช้รวม{' '}
+                    <b className="text-[#0d3a57]">
+                      {pnl.ingredientUsages
+                        .reduce((s, u) => s + u.totalGramsNeeded, 0)
+                        .toLocaleString(undefined, { maximumFractionDigits: 1 })}{' '}
+                      g
+                    </b>{' '}
+                    · {formatBaht(pnl.totalIngredientCost)})
+                  </span>
+                </div>
+                <span className="text-xs font-bold text-[#118cd1] group-hover:underline flex items-center gap-1 shrink-0">
+                  ขยายดูแผนภูมิ <ChevronDown className="w-3.5 h-3.5" />
+                </span>
               </div>
             )}
 
-            {/* แถบเพิ่มวัตถุดิบที่ใช้ในบูธนี้โดยตรง (เช่น ท็อปปิ้ง หรือวัตถุดิบที่อยากระบุกรัม & Vendor เอง) */}
-            <form
-              onSubmit={handleAddManualIngredientToBooth}
-              className="bg-[#fef9ec] p-3.5 rounded-xl border border-[#eae3cf] grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-end"
-            >
-              <div className="sm:col-span-4">
-                <label className="block text-[11px] font-extrabold text-[#0d3a57] mb-1">
-                  + เพิ่มวัตถุดิบอื่นๆ ที่ใช้ในบูธนี้โดยตรง (ระบุกรัมเอง):
-                </label>
-                <select
-                  value={manualIngId}
-                  onChange={(e) => {
-                    setManualIngId(e.target.value);
-                    setManualIngLotId('latest');
-                  }}
-                  className="w-full text-xs font-bold bg-white border border-[#eae3cf] rounded-lg px-2.5 py-2 text-[#0d3a57]"
-                >
-                  {state.ingredients.map((ing) => (
-                    <option key={ing.id} value={ing.id}>
-                      {ing.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+            {/* Expanded Bar Charts */}
+            {isIngredientVendorExpanded && (
+              <>
+                {pnl.ingredientUsages.length === 0 ? (
+                  <div className="text-xs text-[#6b8799] bg-[#fef9ec] p-4 rounded-xl border border-[#eae3cf] text-center">
+                    ยังไม่มีรายการวัตถุดิบที่คำนวณในบูธนี้
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                    {pnl.ingredientUsages.map((u) => {
+                      // จัดกลุ่ม slices ตาม Vendor
+                      const vendorGroups = new Map<
+                        string,
+                        {
+                          vendor: string;
+                          grams: number;
+                          totalCost: number;
+                          lotDates: string[];
+                          unitCost: number;
+                        }
+                      >();
 
-              <div className="sm:col-span-5">
-                <label className="block text-[11px] font-bold text-[#6b8799] mb-1">
-                  เลือกการซื้อครั้งไหน / Vendor ไหน:
-                </label>
-                <select
-                  value={manualIngLotId}
-                  onChange={(e) => setManualIngLotId(e.target.value)}
-                  className="w-full text-xs font-bold bg-white border border-[#eae3cf] rounded-lg px-2.5 py-2 text-[#0d3a57]"
-                >
-                  <option value="latest">📌 ใช้ราคาล็อตล่าสุดที่ซื้อเข้า</option>
-                  {state.ingredientLots
-                    .filter((l) => l.ingredientId === manualIngId)
-                    .sort(
-                      (a, b) =>
-                        a.purchaseDate.localeCompare(b.purchaseDate) || a.id.localeCompare(b.id)
-                    )
-                    .map((lot, idx) => (
-                      <option key={lot.id} value={lot.id}>
-                        ครั้งที่ {idx + 1}: {lot.purchaseDate} · {lot.vendor} (
-                        {formatBaht(lot.costPerGram, 4)}/g)
-                      </option>
-                    ))}
-                </select>
-              </div>
+                      if (u.slices && u.slices.length > 0) {
+                        for (const s of u.slices) {
+                          const vName = (s.vendor || 'ไม่ระบุ Vendor').trim();
+                          const existing = vendorGroups.get(vName);
+                          if (!existing) {
+                            vendorGroups.set(vName, {
+                              vendor: vName,
+                              grams: s.quantityUsed,
+                              totalCost: s.totalCost,
+                              lotDates: s.purchaseDate ? [s.purchaseDate] : [],
+                              unitCost: s.unitCost,
+                            });
+                          } else {
+                            existing.grams += s.quantityUsed;
+                            existing.totalCost += s.totalCost;
+                            if (s.purchaseDate && !existing.lotDates.includes(s.purchaseDate)) {
+                              existing.lotDates.push(s.purchaseDate);
+                            }
+                          }
+                        }
+                      } else if (u.totalGramsNeeded > 0) {
+                        const lots = state.ingredientLots.filter((l) => l.ingredientId === u.ingredientId);
+                        const fallbackVendor = lots.length > 0 ? lots[lots.length - 1].vendor : 'ยังไม่มีล็อตซื้อ';
+                        vendorGroups.set(fallbackVendor, {
+                          vendor: fallbackVendor,
+                          grams: u.totalGramsNeeded,
+                          totalCost: u.totalCost,
+                          lotDates: [],
+                          unitCost: u.totalGramsNeeded > 0 ? u.totalCost / u.totalGramsNeeded : 0,
+                        });
+                      }
 
-              <div className="sm:col-span-3 flex gap-1.5">
-                <div className="w-full">
-                  <label className="block text-[11px] font-bold text-[#6b8799] mb-1">
-                    ใช้ไปกี่กรัม (g):
-                  </label>
-                  <input
-                    type="number"
-                    min="0.1"
-                    step="any"
-                    placeholder="เช่น 250"
-                    value={manualIngGrams}
-                    onChange={(e) => setManualIngGrams(e.target.value)}
-                    className="w-full text-xs font-extrabold bg-white border border-[#eae3cf] rounded-lg px-2.5 py-2 text-[#0d3a57]"
-                    required
-                  />
-                </div>
-                <button
-                  type="submit"
-                  className="bg-[#118cd1] hover:bg-[#0e78b5] text-white font-bold px-3.5 py-2 rounded-lg text-xs shrink-0 cursor-pointer self-end"
+                      const vendorList = Array.from(vendorGroups.values());
+                      const barPalette = [
+                        'bg-[#118cd1]', // primary blue
+                        'bg-[#0284c7]', // sky
+                        'bg-[#0d9488]', // teal
+                        'bg-[#f59e0b]', // amber
+                        'bg-[#8b5cf6]', // violet
+                        'bg-[#ec4899]', // pink
+                      ];
+
+                      return (
+                        <div
+                          key={u.ingredientId}
+                          className="bg-[#fef9ec] rounded-2xl p-4 border border-[#eae3cf] shadow-xs flex flex-col justify-between space-y-3"
+                        >
+                          {/* Card Header */}
+                          <div className="flex items-start justify-between gap-2 border-b border-[#eae3cf]/60 pb-2.5">
+                            <div>
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="font-extrabold text-sm text-[#0d3a57]">
+                                  {u.ingredientName}
+                                </span>
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#118cd1]/15 text-[#118cd1]">
+                                  {vendorList.length} Vendor
+                                </span>
+                              </div>
+                              <div className="text-[11px] text-[#6b8799] mt-0.5">
+                                ใช้รวม:{' '}
+                                <b className="text-[#0d3a57]">
+                                  {u.totalGramsNeeded.toLocaleString(undefined, {
+                                    maximumFractionDigits: 1,
+                                  })}{' '}
+                                  g
+                                </b>
+                                {u.recipeGramsNeeded > 0 && (
+                                  <span className="ml-1 text-[10px]">
+                                    (ตามสูตร {u.recipeGramsNeeded.toLocaleString(undefined, { maximumFractionDigits: 1 })} g)
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="text-right shrink-0">
+                              <span className="font-extrabold text-sm text-rose-700 block">
+                                {formatBaht(u.totalCost)}
+                              </span>
+                              <span className="text-[10px] text-[#6b8799]">
+                                เฉลี่ย {formatBaht(u.totalGramsNeeded > 0 ? u.totalCost / u.totalGramsNeeded : 0, 3)}/g
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* แผนภูมิแท่ง: แสดง 1 แท่งต่อ 1 Vendor */}
+                          <div className="space-y-2.5">
+                            {vendorList.map((vg, vIdx) => {
+                              const pct = u.totalGramsNeeded > 0 ? (vg.grams / u.totalGramsNeeded) * 100 : 100;
+                              const barColor = barPalette[vIdx % barPalette.length];
+
+                              return (
+                                <div key={vg.vendor} className="space-y-1">
+                                  <div className="flex items-center justify-between text-xs gap-2">
+                                    <div className="font-bold text-[#0d3a57] flex items-center gap-1.5 truncate">
+                                      <span className={`w-2.5 h-2.5 rounded-full ${barColor} shrink-0`} />
+                                      <span className="truncate">{vg.vendor}</span>
+                                      {vg.lotDates.length > 0 && (
+                                        <span className="text-[10px] text-[#6b8799] font-normal truncate">
+                                          ({vg.lotDates.join(', ')})
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="text-right shrink-0 text-xs">
+                                      <b className="text-[#0d3a57]">
+                                        {vg.grams.toLocaleString(undefined, { maximumFractionDigits: 1 })} g
+                                      </b>
+                                      <span className="text-[#6b8799] text-[11px] ml-1">
+                                        ({pct.toFixed(0)}%)
+                                      </span>
+                                      <span className="text-rose-700 font-extrabold ml-1.5">
+                                        · {formatBaht(vg.totalCost)}
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  {/* Bar container */}
+                                  <div className="w-full bg-[#eae3cf]/60 h-3 rounded-full overflow-hidden flex">
+                                    <div
+                                      className={`h-full ${barColor} rounded-full transition-all duration-500`}
+                                      style={{ width: `${Math.min(100, Math.max(4, pct))}%` }}
+                                      title={`${vg.vendor}: ${vg.grams.toLocaleString()} g (${pct.toFixed(1)}%) — ${formatBaht(vg.totalCost)}`}
+                                    />
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* แถบเพิ่มวัตถุดิบที่ใช้ในบูธนี้โดยตรง (เช่น ท็อปปิ้ง หรือวัตถุดิบที่อยากระบุกรัม & Vendor เอง) */}
+                <form
+                  onSubmit={handleAddManualIngredientToBooth}
+                  className="bg-[#fef9ec] p-3.5 rounded-xl border border-[#eae3cf] grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-end mt-4"
                 >
-                  + เพิ่ม
-                </button>
-              </div>
-            </form>
+                  <div className="sm:col-span-4">
+                    <label className="block text-[11px] font-extrabold text-[#0d3a57] mb-1">
+                      + เพิ่มวัตถุดิบอื่นๆ ที่ใช้ในบูธนี้โดยตรง (ระบุกรัมเอง):
+                    </label>
+                    <select
+                      value={manualIngId}
+                      onChange={(e) => {
+                        setManualIngId(e.target.value);
+                        setManualIngLotId('latest');
+                      }}
+                      className="w-full text-xs font-bold bg-white border border-[#eae3cf] rounded-lg px-2.5 py-2 text-[#0d3a57]"
+                    >
+                      {state.ingredients.map((ing) => (
+                        <option key={ing.id} value={ing.id}>
+                          {ing.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="sm:col-span-5">
+                    <label className="block text-[11px] font-bold text-[#6b8799] mb-1">
+                      ระบุล็อตซื้อ / Vendor ที่นำมาใช้:
+                    </label>
+                    <select
+                      value={manualIngLotId}
+                      onChange={(e) => setManualIngLotId(e.target.value)}
+                      className="w-full text-xs font-bold bg-white border border-[#eae3cf] rounded-lg px-2.5 py-2 text-[#0d3a57]"
+                    >
+                      <option value="latest">ล็อตล่าสุด (Latest)</option>
+                      <option value="fifo">ตามคิว FIFO เก่าสุด (FIFO)</option>
+                      {state.ingredientLots
+                        .filter((l) => l.ingredientId === manualIngId)
+                        .sort(
+                          (a, b) =>
+                            a.purchaseDate.localeCompare(b.purchaseDate) || a.id.localeCompare(b.id)
+                        )
+                        .map((lot, idx) => (
+                          <option key={lot.id} value={lot.id}>
+                            ครั้งที่ {idx + 1}: {lot.purchaseDate} · {lot.vendor} (
+                            {formatBaht(lot.costPerGram, 4)}/g)
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+
+                  <div className="sm:col-span-3 flex gap-1.5">
+                    <div className="w-full">
+                      <label className="block text-[11px] font-bold text-[#6b8799] mb-1">
+                        ใช้ไปกี่กรัม (g):
+                      </label>
+                      <input
+                        type="number"
+                        min="0.1"
+                        step="any"
+                        placeholder="เช่น 250"
+                        value={manualIngGrams}
+                        onChange={(e) => setManualIngGrams(e.target.value)}
+                        className="w-full text-xs font-extrabold bg-white border border-[#eae3cf] rounded-lg px-2.5 py-2 text-[#0d3a57]"
+                        required
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      className="bg-[#118cd1] hover:bg-[#0e78b5] text-white font-bold px-3.5 py-2 rounded-lg text-xs shrink-0 cursor-pointer self-end"
+                    >
+                      + เพิ่ม
+                    </button>
+                  </div>
+                </form>
+              </>
+            )}
           </div>
 
           {/* ตารางสรุปยอดขายและต้นทุนวัตถุดิบแยกตามรสชาติในบูธนี้ */}
